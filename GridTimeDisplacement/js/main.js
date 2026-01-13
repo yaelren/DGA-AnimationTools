@@ -511,10 +511,9 @@ function render() {
         Chatooly.backgroundManager.drawToCanvas(renderCtx, canvas.width, canvas.height);
     }
 
-    // Show buffering progress if loading
+    // Show buffering progress during frame extraction (includes initial load)
     if (isBuffering) {
         drawBufferingProgressToCtx(renderCtx);
-        // Copy offscreen to visible canvas
         ctx.drawImage(offscreenCanvas, 0, 0);
         return;
     }
@@ -522,7 +521,6 @@ function render() {
     // If no video loaded, show placeholder
     if (!settings.videoLoaded || frameBuffer.length === 0) {
         drawPlaceholderToCtx(renderCtx);
-        // Copy offscreen to visible canvas
         ctx.drawImage(offscreenCanvas, 0, 0);
         return;
     }
@@ -545,6 +543,10 @@ window.render = render;
  * Draw buffering progress indicator
  */
 function drawBufferingProgressToCtx(targetCtx) {
+    // Ensure dark background for text visibility
+    targetCtx.fillStyle = '#000000';
+    targetCtx.fillRect(0, 0, canvas.width, canvas.height);
+
     targetCtx.fillStyle = '#ffffff';
     targetCtx.font = '24px monospace';
     targetCtx.textAlign = 'center';
@@ -573,6 +575,10 @@ function drawBufferingProgressToCtx(targetCtx) {
  * Draw placeholder when no video is loaded
  */
 function drawPlaceholderToCtx(targetCtx) {
+    // Ensure dark background for text visibility
+    targetCtx.fillStyle = '#000000';
+    targetCtx.fillRect(0, 0, canvas.width, canvas.height);
+
     targetCtx.fillStyle = '#333333';
     targetCtx.font = '32px monospace';
     targetCtx.textAlign = 'center';
