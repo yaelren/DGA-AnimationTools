@@ -18,6 +18,12 @@ const sourceVideo = document.getElementById('source-video');
 canvas.width = 1920;
 canvas.height = 1080;
 
+// Offscreen canvas for double buffering (prevents tearing/flashing)
+const offscreenCanvas = document.createElement('canvas');
+offscreenCanvas.width = 1920;
+offscreenCanvas.height = 1080;
+const offscreenCtx = offscreenCanvas.getContext('2d');
+
 // Frame buffer for smooth playback
 let frameBuffer = [];
 let frameRate = 30;
@@ -393,6 +399,7 @@ async function bufferFrames() {
             // Create ImageBitmap from canvas (faster than from video element)
             const bitmap = await createImageBitmap(tempCanvas);
             frameBuffer.push(bitmap);
+
         } catch (err) {
             console.error(`Failed to create bitmap for frame ${i}:`, err);
             frameBuffer.push(null);
@@ -403,6 +410,18 @@ async function bufferFrames() {
         // Yield to UI every 10 frames
         if (i % 10 === 0) {
             await new Promise(r => setTimeout(r, 0));
+        }
+    }
+
+    // Validate frame buffer - fill any gaps with adjacent frames
+    const missingFrames = frameBuffer.filter(b => !b).length;
+    if (missingFrames > 0) {
+        console.warn(`${missingFrames} frames failed to buffer, filling gaps...`);
+        for (let i = 0; i < frameBuffer.length; i++) {
+            if (!frameBuffer[i]) {
+                frameBuffer[i] = frameBuffer[(i + 1) % totalFrames]
+                              || frameBuffer[(i - 1 + totalFrames) % totalFrames];
+            }
         }
     }
 
@@ -428,7 +447,9 @@ function seekToFrame(frameIndex) {
     return new Promise((resolve) => {
         const time = frameIndex / frameRate;
 
-        if (Math.abs(sourceVideo.currentTime - time) < 0.001) {
+        // For frame 0, don't skip even if currentTime is already 0
+        // The video might not be truly ready to draw yet
+        if (frameIndex !== 0 && Math.abs(sourceVideo.currentTime - time) < 0.001) {
             resolve();
             return;
         }
@@ -475,37 +496,47 @@ window.clearVideo = clearVideo;
 // ============================================
 
 /**
- * Main render function
+ * Main render function - uses double buffering to prevent tearing
  */
 function render() {
+    // Draw everything to offscreen canvas first
+    const renderCtx = offscreenCtx;
+
     // Always draw a black background first as base
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    renderCtx.fillStyle = '#000000';
+    renderCtx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Draw custom background on top if available
     if (window.Chatooly && window.Chatooly.backgroundManager) {
-        Chatooly.backgroundManager.drawToCanvas(ctx, canvas.width, canvas.height);
+        Chatooly.backgroundManager.drawToCanvas(renderCtx, canvas.width, canvas.height);
     }
 
     // Show buffering progress if loading
     if (isBuffering) {
-        drawBufferingProgress();
+        drawBufferingProgressToCtx(renderCtx);
+        // Copy offscreen to visible canvas
+        ctx.drawImage(offscreenCanvas, 0, 0);
         return;
     }
 
     // If no video loaded, show placeholder
     if (!settings.videoLoaded || frameBuffer.length === 0) {
-        drawPlaceholder();
+        drawPlaceholderToCtx(renderCtx);
+        // Copy offscreen to visible canvas
+        ctx.drawImage(offscreenCanvas, 0, 0);
         return;
     }
 
     // Draw grid cells with time displacement
-    drawDisplacedGrid();
+    drawDisplacedGridToCtx(renderCtx);
 
     // Draw grid lines if enabled
     if (settings.showGrid) {
-        drawGridLines();
+        drawGridLinesToCtx(renderCtx);
     }
+
+    // Copy completed frame to visible canvas in one atomic operation
+    ctx.drawImage(offscreenCanvas, 0, 0);
 }
 
 window.render = render;
@@ -513,16 +544,12 @@ window.render = render;
 /**
  * Draw buffering progress indicator
  */
-function drawBufferingProgress() {
-    // Ensure dark background for text visibility
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '24px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(
+function drawBufferingProgressToCtx(targetCtx) {
+    targetCtx.fillStyle = '#ffffff';
+    targetCtx.font = '24px monospace';
+    targetCtx.textAlign = 'center';
+    targetCtx.textBaseline = 'middle';
+    targetCtx.fillText(
         `Buffering frames... ${Math.round(bufferProgress * 100)}%`,
         canvas.width / 2,
         canvas.height / 2
@@ -534,39 +561,49 @@ function drawBufferingProgress() {
     const barX = (canvas.width - barWidth) / 2;
     const barY = canvas.height / 2 + 40;
 
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(barX, barY, barWidth, barHeight);
+    targetCtx.strokeStyle = '#ffffff';
+    targetCtx.lineWidth = 2;
+    targetCtx.strokeRect(barX, barY, barWidth, barHeight);
 
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(barX, barY, barWidth * bufferProgress, barHeight);
+    targetCtx.fillStyle = '#ffffff';
+    targetCtx.fillRect(barX, barY, barWidth * bufferProgress, barHeight);
 }
 
 /**
  * Draw placeholder when no video is loaded
  */
-function drawPlaceholder() {
-    // Ensure dark background for text visibility
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.fillStyle = '#333333';
-    ctx.font = '32px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('Upload a video to begin', canvas.width / 2, canvas.height / 2);
+function drawPlaceholderToCtx(targetCtx) {
+    targetCtx.fillStyle = '#333333';
+    targetCtx.font = '32px monospace';
+    targetCtx.textAlign = 'center';
+    targetCtx.textBaseline = 'middle';
+    targetCtx.fillText('Upload a video to begin', canvas.width / 2, canvas.height / 2);
 }
 
 /**
  * Draw grid cells with time displacement effect
  * Optimized: Uses ImageBitmap directly (GPU-accelerated, no putImageData)
  */
-function drawDisplacedGrid() {
+function drawDisplacedGridToCtx(targetCtx) {
     const { gridCols, gridRows, maxFrameOffset } = settings;
+
+    // Safety check - ensure we have frames to draw
+    if (frameBuffer.length === 0) {
+        console.warn('drawDisplacedGrid called with empty frameBuffer');
+        if (window._debugLoopFrame) window._debugLoopFrame = false;
+        return;
+    }
 
     // Source video dimensions
     const srcWidth = sourceVideo.videoWidth;
     const srcHeight = sourceVideo.videoHeight;
+
+    // Safety check - ensure video dimensions are valid
+    if (!srcWidth || !srcHeight) {
+        console.warn(`drawDisplacedGrid: invalid video dimensions (${srcWidth}x${srcHeight}), readyState=${sourceVideo.readyState}`);
+        if (window._debugLoopFrame) window._debugLoopFrame = false;
+        return;
+    }
 
     // Source cell dimensions
     const srcCellWidth = srcWidth / gridCols;
@@ -585,13 +622,8 @@ function drawDisplacedGrid() {
             // Calculate frame offset
             const frameOffset = Math.floor(displacement * maxFrameOffset);
 
-            // Get target frame index (with wrapping)
-            let targetFrame = (Math.floor(currentFrame) + frameOffset) % totalFrames;
-            if (targetFrame < 0) targetFrame += totalFrames;
-
-            // Get ImageBitmap from buffer
-            const bitmap = frameBuffer[targetFrame];
-            if (!bitmap) continue;
+            // Calculate raw target frame (may exceed totalFrames)
+            const rawTargetFrame = Math.floor(currentFrame) + frameOffset;
 
             // Source rectangle (from video frame)
             const sx = col * srcCellWidth;
@@ -601,41 +633,57 @@ function drawDisplacedGrid() {
             const dx = videoRect.x + col * dstCellWidth;
             const dy = videoRect.y + row * dstCellHeight;
 
-            // Draw directly from ImageBitmap - GPU-accelerated!
-            ctx.drawImage(bitmap, sx, sy, srcCellWidth, srcCellHeight, dx, dy, dstCellWidth, dstCellHeight);
+            // Calculate target frame with proper wrapping
+            const bufferLen = frameBuffer.length;
+            let targetFrame = rawTargetFrame % bufferLen;
+            if (targetFrame < 0) targetFrame += bufferLen;
+
+            let bitmap = frameBuffer[targetFrame];
+
+            // Fallback: if target frame missing, try adjacent frames
+            if (!bitmap) {
+                bitmap = frameBuffer[(targetFrame + 1) % bufferLen]
+                      || frameBuffer[(targetFrame - 1 + bufferLen) % bufferLen]
+                      || frameBuffer[0];
+            }
+
+            if (bitmap) {
+                targetCtx.drawImage(bitmap, sx, sy, srcCellWidth, srcCellHeight, dx, dy, dstCellWidth, dstCellHeight);
+            }
         }
     }
+
 }
 
 /**
  * Draw grid lines overlay
  */
-function drawGridLines() {
+function drawGridLinesToCtx(targetCtx) {
     const { gridCols, gridRows, gridColor, gridWidth } = settings;
 
-    ctx.strokeStyle = gridColor;
-    ctx.lineWidth = gridWidth;
+    targetCtx.strokeStyle = gridColor;
+    targetCtx.lineWidth = gridWidth;
 
     const cellWidth = videoRect.width / gridCols;
     const cellHeight = videoRect.height / gridRows;
 
-    ctx.beginPath();
+    targetCtx.beginPath();
 
     // Vertical lines
     for (let col = 0; col <= gridCols; col++) {
         const x = videoRect.x + col * cellWidth;
-        ctx.moveTo(x, videoRect.y);
-        ctx.lineTo(x, videoRect.y + videoRect.height);
+        targetCtx.moveTo(x, videoRect.y);
+        targetCtx.lineTo(x, videoRect.y + videoRect.height);
     }
 
     // Horizontal lines
     for (let row = 0; row <= gridRows; row++) {
         const y = videoRect.y + row * cellHeight;
-        ctx.moveTo(videoRect.x, y);
-        ctx.lineTo(videoRect.x + videoRect.width, y);
+        targetCtx.moveTo(videoRect.x, y);
+        targetCtx.lineTo(videoRect.x + videoRect.width, y);
     }
 
-    ctx.stroke();
+    targetCtx.stroke();
 }
 
 // ============================================
@@ -659,10 +707,9 @@ function animate(timestamp) {
     }
 
     // Advance frame if playing and video is loaded
-    if (settings.isPlaying && settings.videoLoaded && !isBuffering) {
-        // Advance by deltaTime worth of frames
+    if (settings.isPlaying && settings.videoLoaded && !isBuffering && frameBuffer.length > 0) {
         const framesToAdvance = (deltaTime / 1000) * frameRate;
-        currentFrame = (currentFrame + framesToAdvance) % totalFrames;
+        currentFrame = (currentFrame + framesToAdvance) % frameBuffer.length;
     }
 
     // Render
@@ -753,11 +800,7 @@ window.renderHighResolution = function(targetCanvas, scale) {
         for (let col = 0; col < gridCols; col++) {
             const displacement = displacementMap[row]?.[col] ?? 0;
             const frameOffset = Math.floor(displacement * maxFrameOffset);
-            let targetFrame = (Math.floor(currentFrame) + frameOffset) % totalFrames;
-            if (targetFrame < 0) targetFrame += totalFrames;
-
-            const bitmap = frameBuffer[targetFrame];
-            if (!bitmap) continue;
+            const rawTargetFrame = Math.floor(currentFrame) + frameOffset;
 
             const sx = col * srcCellWidth;
             const sy = row * srcCellHeight;
@@ -765,8 +808,21 @@ window.renderHighResolution = function(targetCanvas, scale) {
             const dx = videoRect.x + col * dstCellWidth;
             const dy = videoRect.y + row * dstCellHeight;
 
-            // Draw directly from ImageBitmap
-            exportCtx.drawImage(bitmap, sx, sy, srcCellWidth, srcCellHeight, dx, dy, dstCellWidth, dstCellHeight);
+            // Calculate target frame with wrap-around
+            let targetFrame = rawTargetFrame % totalFrames;
+            if (targetFrame < 0) targetFrame += totalFrames;
+
+            let bitmap = frameBuffer[targetFrame];
+
+            // Fallback: if target frame missing, try adjacent frames
+            if (!bitmap) {
+                bitmap = frameBuffer[(targetFrame + 1) % totalFrames]
+                      || frameBuffer[(targetFrame - 1 + totalFrames) % totalFrames];
+            }
+
+            if (bitmap) {
+                exportCtx.drawImage(bitmap, sx, sy, srcCellWidth, srcCellHeight, dx, dy, dstCellWidth, dstCellHeight);
+            }
         }
     }
 
