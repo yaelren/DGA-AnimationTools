@@ -35,10 +35,10 @@ const settings = {
     splitEnabled: false,
     splitMaxObjects: 100,
 
-    // === Rotation on Hit (reactive) ===
+    // === Spin on Hit (random rotation) ===
     rotationOnHitEnabled: false,
-    rotationOnHitMode: 'snap',      // 'snap' | 'lerp'
-    rotationLerpSpeed: 5.0,
+    spinLerpEnabled: false,         // smooth transition to random angle
+    spinLerpSpeed: 5.0,
 
     // === Simple Rotate (constant spin) ===
     simpleRotateEnabled: false,
@@ -721,19 +721,18 @@ function handleSplit(parentObject, bounceResult) {
     spawnDVDObject(bounceResult.newPosition, childVelocity);
 }
 
-function handleRotationOnHit(object, hitEdge, delta) {
+function handleRotationOnHit(object) {
     if (!settings.rotationOnHitEnabled) return;
 
-    const hitAngle = boundsManager.getHitAngle(hitEdge);
+    // Generate random target angle
+    const targetAngle = Math.random() * Math.PI * 2;
 
-    if (settings.rotationOnHitMode === 'snap') {
-        object.hitRotationOffset = hitAngle;
+    if (settings.spinLerpEnabled) {
+        // Store target for smooth lerp (handled in update loop)
+        object.targetRotationOffset = targetAngle;
     } else {
-        // Smooth lerp
-        const currentAngle = object.hitRotationOffset;
-        const angleDiff = hitAngle - currentAngle;
-        const normalizedDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
-        object.hitRotationOffset += normalizedDiff * settings.rotationLerpSpeed * delta;
+        // Instant snap to random angle
+        object.hitRotationOffset = targetAngle;
     }
 }
 
@@ -784,6 +783,21 @@ function updateObjects(delta, currentTime) {
     const objectsToSplit = [];
 
     objects.forEach(object => {
+        // Update spin lerp (smooth transition to target rotation)
+        if (settings.spinLerpEnabled && object.targetRotationOffset !== undefined) {
+            const currentAngle = object.hitRotationOffset;
+            const targetAngle = object.targetRotationOffset;
+            const angleDiff = targetAngle - currentAngle;
+            const normalizedDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+            object.hitRotationOffset += normalizedDiff * settings.spinLerpSpeed * delta;
+
+            // Clear target when close enough
+            if (Math.abs(normalizedDiff) < 0.01) {
+                object.hitRotationOffset = targetAngle;
+                delete object.targetRotationOffset;
+            }
+        }
+
         // Update speed burst
         updateSpeedBurst(object, currentTime);
 
@@ -817,8 +831,8 @@ function updateObjects(delta, currentTime) {
                 objectsToSplit.push({ object, bounceResult });
             }
 
-            // Rotation on hit
-            handleRotationOnHit(object, bounceResult.hitEdge, delta);
+            // Spin on hit
+            handleRotationOnHit(object);
 
             // Recalculate aligned hit side after bounce
             if (settings.alignedHitEnabled) {

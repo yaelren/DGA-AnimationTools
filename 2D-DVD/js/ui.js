@@ -176,14 +176,14 @@
         });
         setupSlider('split-max-objects', 'splitMaxObjects', null, 0);
 
-        // Rotation on Hit
+        // Spin on Hit
         setupToggle('rotation-on-hit-enabled', 'rotationOnHitEnabled', (enabled) => {
-            showElement('rotation-on-hit-settings', enabled);
+            showElement('spin-on-hit-settings', enabled);
         });
-        setupSelect('rotation-on-hit-mode', 'rotationOnHitMode', (value) => {
-            showElement('rotation-lerp-speed-group', value === 'lerp');
+        setupToggle('spin-lerp-enabled', 'spinLerpEnabled', (enabled) => {
+            showElement('spin-lerp-speed-group', enabled);
         });
-        setupSlider('rotation-lerp-speed', 'rotationLerpSpeed');
+        setupSlider('spin-lerp-speed', 'spinLerpSpeed');
 
         // ========== SECTION 4: TRAIL ==========
 
