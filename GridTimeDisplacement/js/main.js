@@ -368,28 +368,36 @@ async function loadVideo(file) {
 window.loadVideo = loadVideo;
 
 /**
- * Extract all frames from video into buffer
+ * Extract all frames from video into buffer using ImageBitmap (GPU-accelerated)
  */
 async function bufferFrames() {
     isBuffering = true;
-    frameBuffer = [];
 
-    // Create temporary canvas for frame extraction
+    // Clean up any existing bitmaps
+    clearFrameBuffer();
+
+    // Create temporary canvas for frame capture (reuse for all frames)
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = sourceVideo.videoWidth;
     tempCanvas.height = sourceVideo.videoHeight;
-    // Use willReadFrequently for better performance with getImageData
-    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+    const tempCtx = tempCanvas.getContext('2d');
 
-    // Extract frames
+    // Capture frames: seek -> draw to canvas -> create bitmap
     for (let i = 0; i < totalFrames; i++) {
         await seekToFrame(i);
+
+        // Draw current video frame to temp canvas
         tempCtx.drawImage(sourceVideo, 0, 0);
 
-        // Store frame as ImageData
-        frameBuffer.push(tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height));
+        try {
+            // Create ImageBitmap from canvas (faster than from video element)
+            const bitmap = await createImageBitmap(tempCanvas);
+            frameBuffer.push(bitmap);
+        } catch (err) {
+            console.error(`Failed to create bitmap for frame ${i}:`, err);
+            frameBuffer.push(null);
+        }
 
-        // Update progress
         bufferProgress = (i + 1) / totalFrames;
 
         // Yield to UI every 10 frames
@@ -399,6 +407,18 @@ async function bufferFrames() {
     }
 
     isBuffering = false;
+}
+
+/**
+ * Clean up frame buffer and release GPU memory
+ */
+function clearFrameBuffer() {
+    for (const bitmap of frameBuffer) {
+        if (bitmap && typeof bitmap.close === 'function') {
+            bitmap.close();
+        }
+    }
+    frameBuffer = [];
 }
 
 /**
@@ -413,12 +433,12 @@ function seekToFrame(frameIndex) {
             return;
         }
 
-        // Timeout to prevent infinite hang
+        // Shorter timeout - seeks should be fast
         const timeout = setTimeout(() => {
             sourceVideo.removeEventListener('seeked', onSeeked);
-            console.warn(`Seek to frame ${frameIndex} timed out, continuing...`);
-            resolve(); // Resolve anyway to continue buffering
-        }, 3000);
+            console.warn(`Seek to frame ${frameIndex} timed out`);
+            resolve();
+        }, 500);
 
         const onSeeked = () => {
             clearTimeout(timeout);
@@ -431,11 +451,14 @@ function seekToFrame(frameIndex) {
 }
 
 /**
- * Clear loaded video
+ * Clear loaded video and release GPU memory
  */
 function clearVideo() {
     sourceVideo.src = '';
-    frameBuffer = [];
+
+    // Clean up ImageBitmaps to free GPU memory
+    clearFrameBuffer();
+
     totalFrames = 0;
     settings.videoLoaded = false;
     currentFrame = 0;
@@ -536,13 +559,10 @@ function drawPlaceholder() {
 
 /**
  * Draw grid cells with time displacement effect
+ * Optimized: Uses ImageBitmap directly (GPU-accelerated, no putImageData)
  */
 function drawDisplacedGrid() {
     const { gridCols, gridRows, maxFrameOffset } = settings;
-
-    // Cell dimensions on canvas
-    const cellWidth = canvas.width / gridCols;
-    const cellHeight = canvas.height / gridRows;
 
     // Source video dimensions
     const srcWidth = sourceVideo.videoWidth;
@@ -552,13 +572,11 @@ function drawDisplacedGrid() {
     const srcCellWidth = srcWidth / gridCols;
     const srcCellHeight = srcHeight / gridRows;
 
-    // Create temporary canvas for frame rendering
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = srcWidth;
-    tempCanvas.height = srcHeight;
-    const tempCtx = tempCanvas.getContext('2d');
+    // Destination cell dimensions (accounting for letterbox)
+    const dstCellWidth = videoRect.width / gridCols;
+    const dstCellHeight = videoRect.height / gridRows;
 
-    // Draw each cell
+    // Draw each cell - ImageBitmap allows direct drawImage (no temp canvas needed!)
     for (let row = 0; row < gridRows; row++) {
         for (let col = 0; col < gridCols; col++) {
             // Get displacement value for this cell
@@ -567,31 +585,24 @@ function drawDisplacedGrid() {
             // Calculate frame offset
             const frameOffset = Math.floor(displacement * maxFrameOffset);
 
-            // Get target frame index (with wrapping) - use Math.floor since currentFrame is float
+            // Get target frame index (with wrapping)
             let targetFrame = (Math.floor(currentFrame) + frameOffset) % totalFrames;
             if (targetFrame < 0) targetFrame += totalFrames;
 
-            // Get frame from buffer
-            const frameData = frameBuffer[targetFrame];
-            if (!frameData) continue;
-
-            // Draw frame to temp canvas
-            tempCtx.putImageData(frameData, 0, 0);
+            // Get ImageBitmap from buffer
+            const bitmap = frameBuffer[targetFrame];
+            if (!bitmap) continue;
 
             // Source rectangle (from video frame)
             const sx = col * srcCellWidth;
             const sy = row * srcCellHeight;
-            const sw = srcCellWidth;
-            const sh = srcCellHeight;
 
             // Destination rectangle (on canvas, accounting for letterbox)
-            const dx = videoRect.x + (col / gridCols) * videoRect.width;
-            const dy = videoRect.y + (row / gridRows) * videoRect.height;
-            const dw = videoRect.width / gridCols;
-            const dh = videoRect.height / gridRows;
+            const dx = videoRect.x + col * dstCellWidth;
+            const dy = videoRect.y + row * dstCellHeight;
 
-            // Draw cell
-            ctx.drawImage(tempCanvas, sx, sy, sw, sh, dx, dy, dw, dh);
+            // Draw directly from ImageBitmap - GPU-accelerated!
+            ctx.drawImage(bitmap, sx, sy, srcCellWidth, srcCellHeight, dx, dy, dstCellWidth, dstCellHeight);
         }
     }
 }
@@ -727,7 +738,7 @@ window.renderHighResolution = function(targetCanvas, scale) {
         return;
     }
 
-    // Draw the current frame state
+    // Draw the current frame state using ImageBitmap (optimized)
     const { gridCols, gridRows, maxFrameOffset } = settings;
 
     const srcWidth = sourceVideo.videoWidth;
@@ -735,10 +746,8 @@ window.renderHighResolution = function(targetCanvas, scale) {
     const srcCellWidth = srcWidth / gridCols;
     const srcCellHeight = srcHeight / gridRows;
 
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = srcWidth;
-    tempCanvas.height = srcHeight;
-    const tempCtx = tempCanvas.getContext('2d');
+    const dstCellWidth = videoRect.width / gridCols;
+    const dstCellHeight = videoRect.height / gridRows;
 
     for (let row = 0; row < gridRows; row++) {
         for (let col = 0; col < gridCols; col++) {
@@ -747,22 +756,17 @@ window.renderHighResolution = function(targetCanvas, scale) {
             let targetFrame = (Math.floor(currentFrame) + frameOffset) % totalFrames;
             if (targetFrame < 0) targetFrame += totalFrames;
 
-            const frameData = frameBuffer[targetFrame];
-            if (!frameData) continue;
-
-            tempCtx.putImageData(frameData, 0, 0);
+            const bitmap = frameBuffer[targetFrame];
+            if (!bitmap) continue;
 
             const sx = col * srcCellWidth;
             const sy = row * srcCellHeight;
-            const sw = srcCellWidth;
-            const sh = srcCellHeight;
 
-            const dx = videoRect.x + (col / gridCols) * videoRect.width;
-            const dy = videoRect.y + (row / gridRows) * videoRect.height;
-            const dw = videoRect.width / gridCols;
-            const dh = videoRect.height / gridRows;
+            const dx = videoRect.x + col * dstCellWidth;
+            const dy = videoRect.y + row * dstCellHeight;
 
-            exportCtx.drawImage(tempCanvas, sx, sy, sw, sh, dx, dy, dw, dh);
+            // Draw directly from ImageBitmap
+            exportCtx.drawImage(bitmap, sx, sy, srcCellWidth, srcCellHeight, dx, dy, dstCellWidth, dstCellHeight);
         }
     }
 
