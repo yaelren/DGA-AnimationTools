@@ -69,7 +69,8 @@ const settings = {
     bgFit: 'cover',
 
     // === Debug ===
-    debugBoundsVisible: false
+    debugBoundsVisible: false,
+    debugColliderVisible: false
 };
 
 // ========== STATE ==========
@@ -307,7 +308,25 @@ class BoundsManager {
         };
     }
 
-    checkBounce(object, radiusX, radiusY) {
+    // Get the four corners of a rotated rectangle
+    getRotatedCorners(centerX, centerY, halfWidth, halfHeight, rotation) {
+        const corners = [
+            { x: -halfWidth, y: -halfHeight },  // top-left
+            { x: halfWidth, y: -halfHeight },   // top-right
+            { x: halfWidth, y: halfHeight },    // bottom-right
+            { x: -halfWidth, y: halfHeight }    // bottom-left
+        ];
+
+        const cos = Math.cos(rotation);
+        const sin = Math.sin(rotation);
+
+        return corners.map(corner => ({
+            x: centerX + corner.x * cos - corner.y * sin,
+            y: centerY + corner.x * sin + corner.y * cos
+        }));
+    }
+
+    checkBounce(object, radiusX, radiusY, rotation = 0) {
         const result = {
             bounced: false,
             hitEdge: null,
@@ -315,29 +334,55 @@ class BoundsManager {
             newVelocity: { x: object.velocity.x, y: object.velocity.y }
         };
 
-        // Left/Right bounds - use radiusX (half-width)
-        if (object.position.x - radiusX <= this.bounds.left) {
+        // Get all four rotated corners
+        const corners = this.getRotatedCorners(
+            object.position.x, object.position.y,
+            radiusX, radiusY, rotation
+        );
+
+        // Find the extreme points of the rotated rectangle
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+
+        for (const corner of corners) {
+            minX = Math.min(minX, corner.x);
+            maxX = Math.max(maxX, corner.x);
+            minY = Math.min(minY, corner.y);
+            maxY = Math.max(maxY, corner.y);
+        }
+
+        // Check each edge and calculate push-back distance
+        // Left edge
+        if (minX <= this.bounds.left) {
             result.bounced = true;
             result.hitEdge = 'left';
-            result.newPosition.x = this.bounds.left + radiusX;
+            const pushBack = this.bounds.left - minX;
+            result.newPosition.x = object.position.x + pushBack;
             result.newVelocity.x = Math.abs(object.velocity.x);
-        } else if (object.position.x + radiusX >= this.bounds.right) {
+        }
+        // Right edge
+        else if (maxX >= this.bounds.right) {
             result.bounced = true;
             result.hitEdge = 'right';
-            result.newPosition.x = this.bounds.right - radiusX;
+            const pushBack = maxX - this.bounds.right;
+            result.newPosition.x = object.position.x - pushBack;
             result.newVelocity.x = -Math.abs(object.velocity.x);
         }
 
-        // Top/Bottom bounds - use radiusY (half-height)
-        if (object.position.y - radiusY <= this.bounds.top) {
+        // Top edge
+        if (minY <= this.bounds.top) {
             result.bounced = true;
             result.hitEdge = 'top';
-            result.newPosition.y = this.bounds.top + radiusY;
+            const pushBack = this.bounds.top - minY;
+            result.newPosition.y = object.position.y + pushBack;
             result.newVelocity.y = Math.abs(object.velocity.y);
-        } else if (object.position.y + radiusY >= this.bounds.bottom) {
+        }
+        // Bottom edge
+        else if (maxY >= this.bounds.bottom) {
             result.bounced = true;
             result.hitEdge = 'bottom';
-            result.newPosition.y = this.bounds.bottom - radiusY;
+            const pushBack = maxY - this.bounds.bottom;
+            result.newPosition.y = object.position.y - pushBack;
             result.newVelocity.y = -Math.abs(object.velocity.y);
         }
 
@@ -749,13 +794,14 @@ function updateObjects(delta, currentTime) {
         object.position.x += effectiveVelocity.x * delta * 60; // Normalize to 60fps
         object.position.y += effectiveVelocity.y * delta * 60;
 
-        // Check for bounces using rectangular bounds
+        // Check for bounces using rectangular bounds (rotation-aware)
         const aspectRatio = mediaManager.getAspectRatio();
         const radiusX = settings.objectSize / 2;
         const radiusY = (settings.objectSize / aspectRatio) / 2;
+        const finalRotation = object.rotation + object.hitRotationOffset;
         const canBounce = (currentTime - object.lastBounceTime) >= bounceCooldown;
         const bounceResult = canBounce
-            ? boundsManager.checkBounce(object, radiusX, radiusY)
+            ? boundsManager.checkBounce(object, radiusX, radiusY, finalRotation)
             : { bounced: false };
 
         if (bounceResult.bounced) {
@@ -856,6 +902,58 @@ function render() {
     // Draw debug bounds
     if (settings.debugBoundsVisible && boundsManager) {
         boundsManager.drawDebug(ctx);
+    }
+
+    // Draw debug colliders for each object
+    if (settings.debugColliderVisible && mediaManager && mediaManager.isReady) {
+        const aspectRatio = mediaManager.getAspectRatio();
+        const radiusX = settings.objectSize / 2;
+        const radiusY = (settings.objectSize / aspectRatio) / 2;
+
+        objects.forEach(obj => {
+            const finalRotation = obj.rotation + obj.hitRotationOffset;
+
+            // Get the rotated corners (what's actually used for collision)
+            const corners = boundsManager.getRotatedCorners(
+                obj.position.x, obj.position.y,
+                radiusX, radiusY, finalRotation
+            );
+
+            // Draw rotated collision box - CYAN
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.moveTo(corners[0].x, corners[0].y);
+            for (let i = 1; i < corners.length; i++) {
+                ctx.lineTo(corners[i].x, corners[i].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+
+            // Draw corner points - GREEN
+            ctx.fillStyle = '#00ff00';
+            for (const corner of corners) {
+                ctx.beginPath();
+                ctx.arc(corner.x, corner.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Draw center point - YELLOW
+            ctx.fillStyle = '#ffff00';
+            ctx.beginPath();
+            ctx.arc(obj.position.x, obj.position.y, 4, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        // Draw legend
+        ctx.font = '12px monospace';
+        ctx.fillStyle = '#00ffff';
+        ctx.fillText('CYAN = Collision Box (rotates with image)', 10, 20);
+        ctx.fillStyle = '#00ff00';
+        ctx.fillText('GREEN = Corner points (trigger bounce)', 10, 36);
+        ctx.fillStyle = '#ffff00';
+        ctx.fillText('YELLOW = Center Point', 10, 52);
     }
 }
 
@@ -1081,6 +1179,10 @@ function toggleDebugBounds(visible) {
     settings.debugBoundsVisible = visible;
 }
 
+function toggleDebugCollider(visible) {
+    settings.debugColliderVisible = visible;
+}
+
 // ========== HIGH-RES EXPORT ==========
 window.renderHighResolution = function(targetCanvas, scale) {
     if (!isReady) {
@@ -1144,6 +1246,7 @@ window.dvdScreensaver = {
     toggleTrail,
     setTrailStyle,
     toggleDebugBounds,
+    toggleDebugCollider,
     updateAllObjectSpeeds,
     setBackgroundImage,
     clearBackgroundImage,

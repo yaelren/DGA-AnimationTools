@@ -75,43 +75,30 @@
 
         // ========== SECTION 1: MEDIA SOURCE ==========
 
-        // Image Upload
-        const imageUpload = document.getElementById('image-upload');
-        const videoUpload = document.getElementById('video-upload');
+        // Combined Media Upload (Image or Video)
+        const mediaUpload = document.getElementById('media-upload');
         const mediaInfo = document.getElementById('media-info');
         const mediaName = document.getElementById('media-name');
         const mediaDimensions = document.getElementById('media-dimensions');
         const clearMedia = document.getElementById('clear-media');
 
-        if (imageUpload) {
-            imageUpload.addEventListener('change', async (e) => {
+        if (mediaUpload) {
+            mediaUpload.addEventListener('change', async (e) => {
                 const file = e.target.files[0];
                 if (file) {
                     try {
-                        const result = await window.dvdScreensaver.mediaManager.loadImage(file);
+                        let result;
+                        if (file.type.startsWith('video/')) {
+                            result = await window.dvdScreensaver.mediaManager.loadVideo(file);
+                        } else {
+                            result = await window.dvdScreensaver.mediaManager.loadImage(file);
+                        }
                         if (mediaInfo) mediaInfo.style.display = 'flex';
                         if (mediaName) mediaName.textContent = result.name;
                         if (mediaDimensions) mediaDimensions.textContent = `${result.width} x ${result.height}`;
                     } catch (err) {
-                        console.error('Failed to load image:', err);
-                        alert('Failed to load image: ' + err.message);
-                    }
-                }
-            });
-        }
-
-        if (videoUpload) {
-            videoUpload.addEventListener('change', async (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    try {
-                        const result = await window.dvdScreensaver.mediaManager.loadVideo(file);
-                        if (mediaInfo) mediaInfo.style.display = 'flex';
-                        if (mediaName) mediaName.textContent = result.name;
-                        if (mediaDimensions) mediaDimensions.textContent = `${result.width} x ${result.height}`;
-                    } catch (err) {
-                        console.error('Failed to load video:', err);
-                        alert('Failed to load video: ' + err.message);
+                        console.error('Failed to load media:', err);
+                        alert('Failed to load media: ' + err.message);
                     }
                 }
             });
@@ -122,8 +109,7 @@
                 // Reset to default DVD logo
                 await window.dvdScreensaver.mediaManager.loadDefault();
                 if (mediaInfo) mediaInfo.style.display = 'none';
-                if (imageUpload) imageUpload.value = '';
-                if (videoUpload) videoUpload.value = '';
+                if (mediaUpload) mediaUpload.value = '';
             });
         }
 
@@ -161,6 +147,16 @@
                 const isPressed = debugBoundsToggle.getAttribute('aria-pressed') === 'true';
                 debugBoundsToggle.setAttribute('aria-pressed', !isPressed);
                 window.dvdScreensaver.toggleDebugBounds(!isPressed);
+            });
+        }
+
+        // Debug Collider Toggle
+        const debugColliderToggle = document.getElementById('debug-collider-enabled');
+        if (debugColliderToggle) {
+            debugColliderToggle.addEventListener('click', () => {
+                const isPressed = debugColliderToggle.getAttribute('aria-pressed') === 'true';
+                debugColliderToggle.setAttribute('aria-pressed', !isPressed);
+                window.dvdScreensaver.toggleDebugCollider(!isPressed);
             });
         }
 
@@ -249,6 +245,15 @@
         setupToggle('transparent-bg', 'bgTransparent', (enabled) => {
             // When transparent is enabled, hide color/image options
             showElement('bg-color-group', !enabled);
+            // Add/remove CSS class for transparency
+            const canvas = document.getElementById('chatooly-canvas');
+            if (canvas) {
+                if (enabled) {
+                    canvas.classList.add('chatooly-canvas-transparent');
+                } else {
+                    canvas.classList.remove('chatooly-canvas-transparent');
+                }
+            }
         });
 
         setupColorPicker('bg-color', 'bgColor');
