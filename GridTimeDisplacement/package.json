@@ -1,0 +1,11 @@
+{
+  "name": "grid-time-displacement",
+  "version": "1.0.0",
+  "description": "Grid-based time displacement effect for video animation",
+  "scripts": {
+    "start": "npx http-server -p 8080 -c-1",
+    "dev": "npx http-server -p 8080 -c-1 -o"
+  },
+  "author": "Yael Renous - Studio Video",
+  "license": "MIT"
+}

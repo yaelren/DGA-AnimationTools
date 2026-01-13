@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grid Time Displacement</title>
+    <link rel="stylesheet" href="https://yaelren.github.io/chatooly-cdn/css/unified.min.css?v=2.1">
+    <style>
+        /* Two-column layout for tool (no AI sidebar - it's in parent shell) */
+        .chatooly-app-container {
+            grid-template-columns: 300px 1fr !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="chatooly-header">
+        <div class="chatooly-header-title">Grid Time Displacement</div>
+        <div class="chatooly-header-credit">MADE WITH CHATOOLY</div>
+    </header>
+
+    <div class="chatooly-app-container">
+        <!-- Left Panel: Tool Controls -->
+        <div class="chatooly-controls-panel">
+            <div class="chatooly-controls-header">
+                <p>Upload a video and create time displacement effects using customizable grids. Each cell plays the video at different time offsets.</p>
+            </div>
+            <div class="chatooly-controls-content">
+
+                <!-- Video Upload Section -->
+                <div class="chatooly-section-card" data-section="video-upload">
+                    <h3 class="chatooly-section-header">Video Upload</h3>
+                    <div class="chatooly-section-content">
+                        <div class="chatooly-upload-area" id="video-upload-area" style="height: 100px;">
+                            <div class="chatooly-upload-icon">
+                                <svg viewBox="0 0 11 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M7.94444 0L11 3V11.4048C10.9998 11.5627 10.9358 11.7141 10.822 11.8257C10.7083 11.9373 10.554 12 10.3932 12H0.606833C0.446342 11.9989 0.292733 11.9359 0.179189 11.8245C0.0656443 11.7131 0.00128006 11.5624 0 11.4048V0.5952C0 0.2664 0.271944 0 0.606833 0H7.94444ZM6.11111 6H7.94444L5.5 3.6L3.05556 6H4.88889V8.4H6.11111V6Z" fill="var(--fill-0, #454545)"/>
+                                </svg>
+                            </div>
+                            <div class="chatooly-upload-text">Upload Video (MP4, WebM)</div>
+                            <input type="file" class="chatooly-upload-input" id="video-upload" accept="video/*">
+                        </div>
+                        <div id="video-info" style="display: none; margin-top: 8px; padding: 8px; background: var(--chatooly-color-surface, #333); border-radius: 4px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span id="video-name" style="font-size: 12px; color: var(--chatooly-color-text);">video.mp4</span>
+                                <button class="chatooly-btn" id="clear-video" style="padding: 4px 8px; min-width: auto;">X</button>
+                            </div>
+                            <div style="font-size: 11px; color: var(--chatooly-color-text-muted); margin-top: 4px;">
+                                <span id="video-duration"></span> | <span id="video-frames"></span> frames
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Grid Settings Section -->
+                <div class="chatooly-section-card" data-section="grid-settings">
+                    <h3 class="chatooly-section-header">Grid Settings</h3>
+                    <div class="chatooly-section-content">
+                        <div class="chatooly-slider-group">
+                            <div class="chatooly-slider-label">
+                                <span>Horizontal Divisions</span>
+                                <span class="chatooly-slider-value" id="grid-cols-value">8</span>
+                            </div>
+                            <input type="range" class="chatooly-slider" id="grid-cols" min="2" max="32" value="8">
+                        </div>
+                        <div class="chatooly-slider-group">
+                            <div class="chatooly-slider-label">
+                                <span>Vertical Divisions</span>
+                                <span class="chatooly-slider-value" id="grid-rows-value">6</span>
+                            </div>
+                            <input type="range" class="chatooly-slider" id="grid-rows" min="2" max="24" value="6">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Grid Appearance Section -->
+                <div class="chatooly-section-card" data-section="grid-appearance">
+                    <h3 class="chatooly-section-header">Grid Appearance</h3>
+                    <div class="chatooly-section-content">
+                        <div class="chatooly-toggle-group">
+                            <button type="button" class="chatooly-toggle" id="show-grid" role="switch" aria-pressed="false">
+                                <span class="chatooly-toggle-slider"></span>
+                            </button>
+                            <label class="chatooly-toggle-label">Show Grid Lines</label>
+                        </div>
+                        <div id="grid-style-controls" style="display: none;">
+                            <div class="chatooly-color-group">
+                                <label class="chatooly-color-label" for="grid-color">Grid Color</label>
+                                <input type="color" class="chatooly-color-input" id="grid-color" value="#ffffff">
+                            </div>
+                            <div class="chatooly-slider-group">
+                                <div class="chatooly-slider-label">
+                                    <span>Border Width</span>
+                                    <span class="chatooly-slider-value" id="grid-width-value">1</span><span>px</span>
+                                </div>
+                                <input type="range" class="chatooly-slider" id="grid-width" min="1" max="10" value="1">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Displacement Mode Section -->
+                <div class="chatooly-section-card" data-section="displacement-mode">
+                    <h3 class="chatooly-section-header">Displacement Mode</h3>
+                    <div class="chatooly-section-content">
+                        <div class="chatooly-input-group">
+                            <label class="chatooly-input-label" for="displacement-mode">Mode</label>
+                            <select class="chatooly-select" id="displacement-mode">
+                                <option value="random">Random (Noise)</option>
+                                <option value="linear">Linear Gradient</option>
+                                <option value="circular">Circular Gradient</option>
+                            </select>
+                        </div>
+
+                        <!-- Random Mode Settings -->
+                        <div id="random-settings">
+                            <div class="chatooly-slider-group">
+                                <div class="chatooly-slider-label">
+                                    <span>Noise Size</span>
+                                    <span class="chatooly-slider-value" id="noise-size-value">1.0</span>
+                                </div>
+                                <input type="range" class="chatooly-slider" id="noise-size" min="0.1" max="5" step="0.1" value="1">
+                            </div>
+                            <div class="chatooly-slider-group">
+                                <div class="chatooly-slider-label">
+                                    <span>Contrast</span>
+                                    <span class="chatooly-slider-value" id="noise-contrast-value">1.0</span>
+                                </div>
+                                <input type="range" class="chatooly-slider" id="noise-contrast" min="0.1" max="3" step="0.1" value="1">
+                            </div>
+                            <div class="chatooly-toggle-group">
+                                <button type="button" class="chatooly-toggle" id="noise-animated" role="switch" aria-pressed="false">
+                                    <span class="chatooly-toggle-slider"></span>
+                                </button>
+                                <label class="chatooly-toggle-label">Animated Noise</label>
+                            </div>
+                            <div id="noise-animation-speed-group" style="display: none;">
+                                <div class="chatooly-slider-group">
+                                    <div class="chatooly-slider-label">
+                                        <span>Animation Speed</span>
+                                        <span class="chatooly-slider-value" id="noise-speed-value">0.5</span>
+                                    </div>
+                                    <input type="range" class="chatooly-slider" id="noise-speed" min="0.1" max="2" step="0.1" value="0.5">
+                                </div>
+                            </div>
+                            <button type="button" class="chatooly-btn" id="regenerate-noise" style="width: 100%; margin-top: 8px;">
+                                Regenerate Noise
+                            </button>
+                        </div>
+
+                        <!-- Linear Mode Settings -->
+                        <div id="linear-settings" style="display: none;">
+                            <div class="chatooly-input-group">
+                                <label class="chatooly-input-label" for="linear-direction">Direction</label>
+                                <select class="chatooly-select" id="linear-direction">
+                                    <option value="horizontal">Horizontal</option>
+                                    <option value="vertical">Vertical</option>
+                                </select>
+                            </div>
+                            <div class="chatooly-toggle-group">
+                                <button type="button" class="chatooly-toggle" id="linear-from-center" role="switch" aria-pressed="false">
+                                    <span class="chatooly-toggle-slider"></span>
+                                </button>
+                                <label class="chatooly-toggle-label">From Center</label>
+                            </div>
+                        </div>
+
+                        <!-- Circular Mode Settings -->
+                        <div id="circular-settings" style="display: none;">
+                            <div class="chatooly-slider-group">
+                                <div class="chatooly-slider-label">
+                                    <span>Center X</span>
+                                    <span class="chatooly-slider-value" id="circular-x-value">50</span><span>%</span>
+                                </div>
+                                <input type="range" class="chatooly-slider" id="circular-x" min="0" max="100" value="50">
+                            </div>
+                            <div class="chatooly-slider-group">
+                                <div class="chatooly-slider-label">
+                                    <span>Center Y</span>
+                                    <span class="chatooly-slider-value" id="circular-y-value">50</span><span>%</span>
+                                </div>
+                                <input type="range" class="chatooly-slider" id="circular-y" min="0" max="100" value="50">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Playback Section -->
+                <div class="chatooly-section-card" data-section="playback">
+                    <h3 class="chatooly-section-header">Playback</h3>
+                    <div class="chatooly-section-content">
+                        <div class="chatooly-slider-group">
+                            <div class="chatooly-slider-label">
+                                <span>Max Frame Offset</span>
+                                <span class="chatooly-slider-value" id="max-offset-value">30</span>
+                            </div>
+                            <input type="range" class="chatooly-slider" id="max-offset" min="1" max="120" value="30">
+                        </div>
+                        <div style="display: flex; gap: 8px; margin-top: 8px;">
+                            <button type="button" class="chatooly-btn" id="play-pause" style="flex: 1;">
+                                Pause
+                            </button>
+                            <button type="button" class="chatooly-btn" id="restart" style="flex: 1;">
+                                Restart
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Background Section -->
+                <div class="chatooly-section-card" data-section="background">
+                    <h3 class="chatooly-section-header">Background</h3>
+                    <div class="chatooly-section-content">
+                        <div class="chatooly-toggle-group">
+                            <button type="button" class="chatooly-toggle" id="transparent-bg" role="switch" aria-pressed="false">
+                                <span class="chatooly-toggle-slider"></span>
+                            </button>
+                            <label class="chatooly-toggle-label">Transparent Background</label>
+                        </div>
+                        <div id="bg-color-group">
+                            <div class="chatooly-color-group">
+                                <label class="chatooly-color-label" for="bg-color">Background Color</label>
+                                <input type="color" class="chatooly-color-input" id="bg-color" value="#000000">
+                            </div>
+                        </div>
+                        <div style="position: relative;">
+                            <div class="chatooly-upload-area" style="height: 80px;">
+                                <div class="chatooly-upload-icon">
+                                    <svg viewBox="0 0 11 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M7.94444 0L11 3V11.4048C10.9998 11.5627 10.9358 11.7141 10.822 11.8257C10.7083 11.9373 10.554 12 10.3932 12H0.606833C0.446342 11.9989 0.292733 11.9359 0.179189 11.8245C0.0656443 11.7131 0.00128006 11.5624 0 11.4048V0.5952C0 0.2664 0.271944 0 0.606833 0H7.94444ZM6.11111 6H7.94444L5.5 3.6L3.05556 6H4.88889V8.4H6.11111V6Z" fill="var(--fill-0, #454545)"/>
+                                    </svg>
+                                </div>
+                                <div class="chatooly-upload-text">Background Image</div>
+                                <input type="file" class="chatooly-upload-input" id="bg-image" accept="image/*">
+                            </div>
+                            <button id="clear-bg-image"
+                                    type="button"
+                                    class="chatooly-btn"
+                                    style="display: none; position: absolute; top: 8px; right: 8px; padding: 4px 8px; min-width: auto; z-index: 10;"
+                                    title="Remove image">×</button>
+                        </div>
+                        <div id="bg-fit-group" style="display: none; margin-top: 8px;">
+                            <div class="chatooly-input-group">
+                                <label class="chatooly-input-label" for="bg-fit">Image Fit</label>
+                                <select class="chatooly-select" id="bg-fit">
+                                    <option value="cover">Fill Frame</option>
+                                    <option value="contain">Fit in Frame</option>
+                                    <option value="fill">Stretch to Fill</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Right Panel: Preview/Canvas Area -->
+        <div class="chatooly-preview-panel">
+            <div id="chatooly-container">
+                <canvas id="chatooly-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden video element for processing -->
+    <video id="source-video" style="display: none;" muted playsinline crossorigin="anonymous"></video>
+
+    <!-- Scripts -->
+    <script src="js/chatooly-config.js"></script>
+    <script src="js/tool-ipc.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="https://yaelren.github.io/chatooly-cdn/js/core.min.js?v=2.1"></script>
+</body>
+</html>

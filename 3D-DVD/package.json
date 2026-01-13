@@ -1,0 +1,13 @@
+{
+  "name": "3d-dvd-screensaver",
+  "version": "1.0.0",
+  "description": "3D DVD Screensaver - Bouncing 3D objects with trails and effects",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx http-server -p 8080 -c-1",
+    "dev": "npx http-server -p 8080 -c-1 -o"
+  },
+  "keywords": ["3d", "dvd", "screensaver", "three.js", "chatooly"],
+  "author": "Yael Renous",
+  "license": "MIT"
+}

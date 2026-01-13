@@ -1,0 +1,24 @@
+{
+  "name": "2d-dvd-screensaver",
+  "version": "1.0.0",
+  "description": "Classic DVD screensaver with 2D images and videos. Features bouncing physics, speed burst, predictive rotation, split effects, and trails.",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve .",
+    "dev": "npx serve . -l 3000"
+  },
+  "keywords": [
+    "dvd",
+    "screensaver",
+    "2d",
+    "canvas",
+    "animation",
+    "bounce",
+    "trail",
+    "image",
+    "video"
+  ],
+  "author": "Yael Renous - Studio Video",
+  "license": "MIT",
+  "devDependencies": {}
+}
